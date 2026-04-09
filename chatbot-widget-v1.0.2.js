@@ -9,7 +9,7 @@
         const API_URL = 'http://103.170.123.35:5100/widget-chat/stream'; 
         const senderId = 'guest_' + Math.random().toString(36).substring(7);
 
-        // 3. Nhúng CSS (Đã thêm CSS cho hiệu ứng Typing Indicator)
+        // 3. Nhúng CSS
         const style = document.createElement('style');
         style.innerHTML = `
             #rasa-chat-widget { position: fixed; bottom: 20px; right: 20px; font-family: Arial, sans-serif; z-index: 99999; }
@@ -19,7 +19,7 @@
             #rasa-chat-header { background: #007bff; color: white; padding: 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
             #rasa-chat-messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #f9f9f9; scroll-behavior: smooth; }
             .msg { max-width: 85%; padding: 10px 15px; border-radius: 15px; font-size: 14px; word-wrap: break-word; line-height: 1.5; }
-            .msg.bot { background: #e9ecef; color: #333; align-self: flex-start; border-bottom-left-radius: 2px; }
+            .msg.bot { background: #e9ecef; color: #333; align-self: flex-start; border-bottom-left-radius: 2px; min-height: 24px; }
             .msg.user { background: #007bff; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
             .msg a { color: #0056b3; text-decoration: none; font-weight: bold; }
             .msg a:hover { text-decoration: underline; }
@@ -40,7 +40,7 @@
             #rasa-chat-send:disabled { color: #aaa; cursor: not-allowed; }
 
             /* --- CSS Hiệu ứng Typing --- */
-            .typing-indicator { display: flex; align-items: center; gap: 4px; height: 20px; padding: 0 5px; }
+            .typing-indicator { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 5px; }
             .typing-indicator span { width: 6px; height: 6px; background-color: #888; border-radius: 50%; animation: blink 1.4s infinite both; }
             .typing-indicator span:nth-child(1) { animation-delay: 0.2s; }
             .typing-indicator span:nth-child(2) { animation-delay: 0.4s; }
@@ -97,7 +97,7 @@
 
             const botMsgDiv = document.createElement('div');
             botMsgDiv.className = 'msg bot';
-            // Gọi thẻ HTML của hiệu ứng Typing thay vì chữ "Đang trả lời..."
+            // Tạo thẻ Typing Indicator lúc chờ đợi
             botMsgDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
             messagesArea.appendChild(botMsgDiv);
 
@@ -108,7 +108,7 @@
                 
                 if (window.marked) {
                     marked.setOptions({ gfm: true, breaks: true });
-                    botMsgDiv.innerHTML = marked.parse(cleanText);
+                    botMsgDiv.innerHTML = marked.parse(cleanText); 
                 } else {
                     botMsgDiv.innerText = cleanText; 
                 }
@@ -117,11 +117,12 @@
 
             const processJsonData = (data) => {
                 if (data.type === 'start') {
-                    // Ngay khi có tín hiệu trả lời, xóa hiệu ứng gõ phím
-                    botMsgDiv.innerHTML = '';
+                    // SỬA LỖI Ở ĐÂY: KHÔNG XÓA botMsgDiv.innerHTML NỮA
+                    // API gửi chữ 'start' ngay lập tức, ta vẫn phải giữ cái typing indicator cho đến khi có chữ thật.
                     botAccumulatedText = '';
                 } 
                 else if (data.type === 'token' && data.text) {
+                    // Khi có ký tự đầu tiên, hàm renderMarkdown sẽ lấy nội dung ghi đè lên cái typing indicator
                     botAccumulatedText += data.text;
                     renderMarkdown(botAccumulatedText);
                 }
