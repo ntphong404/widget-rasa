@@ -1,7 +1,6 @@
 (function() {
-    // Hàm khởi tạo toàn bộ Widget
     function initChatbotWidget() {
-        // 1. Tải thư viện marked.js để xử lý Markdown
+        // 1. Tải thư viện marked.js
         const markedScript = document.createElement('script');
         markedScript.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
         document.head.appendChild(markedScript);
@@ -10,7 +9,7 @@
         const API_URL = 'http://103.170.123.35:5100/widget-chat/stream'; 
         const senderId = 'guest_' + Math.random().toString(36).substring(7);
 
-        // 3. Nhúng CSS
+        // 3. Nhúng CSS (Đã thêm CSS cho hiệu ứng Typing Indicator)
         const style = document.createElement('style');
         style.innerHTML = `
             #rasa-chat-widget { position: fixed; bottom: 20px; right: 20px; font-family: Arial, sans-serif; z-index: 99999; }
@@ -39,6 +38,17 @@
             #rasa-chat-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 14px; }
             #rasa-chat-send { background: none; border: none; color: #007bff; font-weight: bold; cursor: pointer; padding: 0 15px; font-size: 14px; }
             #rasa-chat-send:disabled { color: #aaa; cursor: not-allowed; }
+
+            /* --- CSS Hiệu ứng Typing --- */
+            .typing-indicator { display: flex; align-items: center; gap: 4px; height: 20px; padding: 0 5px; }
+            .typing-indicator span { width: 6px; height: 6px; background-color: #888; border-radius: 50%; animation: blink 1.4s infinite both; }
+            .typing-indicator span:nth-child(1) { animation-delay: 0.2s; }
+            .typing-indicator span:nth-child(2) { animation-delay: 0.4s; }
+            .typing-indicator span:nth-child(3) { animation-delay: 0.6s; }
+            @keyframes blink {
+                0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+                40% { opacity: 1; transform: scale(1.2); }
+            }
         `;
         document.head.appendChild(style);
 
@@ -69,16 +79,13 @@
         const btnSend = document.getElementById('rasa-chat-send');
         const messagesArea = document.getElementById('rasa-chat-messages');
 
-        // Toggle Chat
         document.getElementById('rasa-chat-btn').addEventListener('click', () => {
             chatWindow.style.display = chatWindow.style.display === 'flex' ? 'none' : 'flex';
             if (chatWindow.style.display === 'flex') inputField.focus();
         });
         document.getElementById('rasa-chat-close').addEventListener('click', () => chatWindow.style.display = 'none');
 
-        // Hàm gọi API Stream
         async function sendStreamMessage(message) {
-            // Hiển thị tin nhắn user
             const userMsgDiv = document.createElement('div');
             userMsgDiv.className = 'msg user';
             userMsgDiv.innerText = message;
@@ -88,33 +95,50 @@
             btnSend.disabled = true;
             messagesArea.scrollTop = messagesArea.scrollHeight;
 
-            // Tạo khung chứa tin nhắn bot
             const botMsgDiv = document.createElement('div');
             botMsgDiv.className = 'msg bot';
-            botMsgDiv.innerHTML = '<span style="color:#aaa">Đang trả lời...</span>';
+            // Gọi thẻ HTML của hiệu ứng Typing thay vì chữ "Đang trả lời..."
+            botMsgDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
             messagesArea.appendChild(botMsgDiv);
 
             let botAccumulatedText = "";
 
-            // Hàm xử lý từng object JSON lấy được
+            const renderMarkdown = (text) => {
+                let cleanText = text.split(/###\s*References|\*\*References\*\*/i)[0].trim();
+                
+                if (window.marked) {
+                    marked.setOptions({ gfm: true, breaks: true });
+                    botMsgDiv.innerHTML = marked.parse(cleanText);
+                } else {
+                    botMsgDiv.innerText = cleanText; 
+                }
+                messagesArea.scrollTop = messagesArea.scrollHeight;
+            };
+
             const processJsonData = (data) => {
                 if (data.type === 'start') {
-                    botMsgDiv.innerHTML = ''; // Xóa chữ "Đang trả lời..."
+                    // Ngay khi có tín hiệu trả lời, xóa hiệu ứng gõ phím
+                    botMsgDiv.innerHTML = '';
+                    botAccumulatedText = '';
                 } 
-                // NHẬN DIỆN CẢ 2 TYPE: 'message' (Rasa) HOẶC 'token' (RAG)
-                else if ((data.type === 'message' || data.type === 'token') && data.text) {
+                else if (data.type === 'token' && data.text) {
                     botAccumulatedText += data.text;
-                    
-                    // Xử lý Markdown (Heading, Table, List, Link...)
-                    if (window.marked) {
-                        marked.setOptions({ gfm: true, breaks: true });
-                        botMsgDiv.innerHTML = marked.parse(botAccumulatedText);
-                    } else {
-                        botMsgDiv.innerText = botAccumulatedText; 
-                    }
-                    messagesArea.scrollTop = messagesArea.scrollHeight;
+                    renderMarkdown(botAccumulatedText);
                 }
-                // Các type khác như 'meta', 'references', 'done' sẽ mặc định bị bỏ qua (không render ra UI)
+                else if (data.type === 'message' && data.text) {
+                    let fullText = data.text;
+                    let charIndex = 0;
+                    
+                    function typeNextChar() {
+                        if (charIndex < fullText.length) {
+                            botAccumulatedText += fullText.charAt(charIndex);
+                            renderMarkdown(botAccumulatedText);
+                            charIndex++;
+                            setTimeout(typeNextChar, 15); 
+                        }
+                    }
+                    typeNextChar();
+                }
             };
 
             try {
@@ -133,44 +157,36 @@
                     
                     if (value) {
                         buffer += decoder.decode(value, { stream: true });
-                        // Tách các JSON dính chùm của Rasa (}{ -> }\n{)
                         buffer = buffer.replace(/\}\{/g, '}\n{');
                         
                         const lines = buffer.split('\n');
-                        buffer = lines.pop(); // Giữ lại dòng cuối (có thể bị cắt ngang do mạng)
+                        buffer = lines.pop(); 
 
                         for (const line of lines) {
                             if (!line.trim()) continue;
                             try {
                                 processJsonData(JSON.parse(line));
                             } catch (e) {
-                                console.error('Lỗi parse JSON dòng:', line);
+                                console.error('Lỗi parse JSON:', line);
                             }
                         }
                     }
 
                     if (done) {
-                        // Xử lý nốt phần buffer cuối cùng (nếu còn sót lại khi ngắt stream)
                         if (buffer.trim()) {
-                            try {
-                                processJsonData(JSON.parse(buffer));
-                            } catch (e) {
-                                console.error('Lỗi parse JSON đoạn cuối:', buffer);
-                            }
+                            try { processJsonData(JSON.parse(buffer)); } catch (e) {}
                         }
                         break;
                     }
                 }
             } catch (error) {
-                console.error('Lỗi kết nối Stream:', error);
-                botMsgDiv.innerText = "Lỗi kết nối đến máy chủ. Vui lòng thử lại.";
+                botMsgDiv.innerText = "Lỗi kết nối đến máy chủ.";
             } finally {
                 btnSend.disabled = false;
                 inputField.focus();
             }
         }
 
-        // Bắt sự kiện gửi
         btnSend.addEventListener('click', () => {
             const text = inputField.value.trim();
             if (text && !btnSend.disabled) sendStreamMessage(text);
